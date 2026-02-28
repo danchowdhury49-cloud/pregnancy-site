@@ -1,5 +1,6 @@
-import { format, addDays, differenceInDays, startOfDay, parseISO } from "date-fns";
+import { format, addDays, differenceInDays, startOfDay, parseISO, isValid } from "date-fns";
 import type { Event } from "@/types/database";
+import { weeklyDevelopment } from "@/lib/weeklyDevelopment";  // ← ADD THIS LINE
 
 export function calculateCurrentWeek(dueDate: Date | string): number {
   const due = typeof dueDate === "string" ? parseISO(dueDate) : dueDate;
@@ -41,13 +42,34 @@ export function getNextEvent(events: Event[]): Event | null {
 
 export function getDueDate(): Date {
   const envDate = process.env.NEXT_PUBLIC_DUE_DATE;
+
   if (envDate) {
-    return parseISO(envDate);
+    const parsed = parseISO(envDate);
+    if (isValid(parsed)) return parsed;
   }
+
   return addDays(new Date(), 140);
 }
 
 export function formatDueDate(date: Date | string): string {
   const d = typeof date === "string" ? parseISO(date) : date;
+
+  if (!isValid(d)) return "Set due date";
+
   return format(d, "MMMM d, yyyy");
+}
+
+// ADD THIS FUNCTION AT THE BOTTOM
+export function getWeeklyDevelopment(week: number) {
+  if (weeklyDevelopment[week]) return weeklyDevelopment[week];
+
+  for (let w = week; w >= 1; w--) {
+    if (weeklyDevelopment[w]) return weeklyDevelopment[w];
+  }
+
+  for (let w = week; w <= 40; w++) {
+    if (weeklyDevelopment[w]) return weeklyDevelopment[w];
+  }
+
+  return { headline: `Week ${week}`, blurb: "A new week, a new chapter." };
 }
