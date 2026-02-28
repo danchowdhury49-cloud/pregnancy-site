@@ -20,6 +20,9 @@ export default function Navbar() {
           <Link href="/calendar" className="hover:text-[#9CAF88]">
             Calendar
           </Link>
+          <Link href="/name-generator" className="hover:text-[#9CAF88]">
+    Name Generator
+</Link>
           <Link href="/important-dates" className="hover:text-[#9CAF88]">
             Important Dates
           </Link>
