@@ -1,5 +1,7 @@
 {
-  "/page": "app/page.js",
   "/(protected)/home/page": "app/(protected)/home/page.js",
-  "/(protected)/calendar/page": "app/(protected)/calendar/page.js"
+  "/(protected)/calendar/page": "app/(protected)/calendar/page.js",
+  "/(protected)/memories/page": "app/(protected)/memories/page.js",
+  "/(protected)/journal/page": "app/(protected)/journal/page.js",
+  "/(protected)/important-dates/page": "app/(protected)/important-dates/page.js"
 }
