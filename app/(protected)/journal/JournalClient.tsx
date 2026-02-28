@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { format } from "date-fns";
 import type { JournalEntry } from "@/types/database";
@@ -19,15 +19,22 @@ const MOOD_LABELS: Record<Mood, string> = {
   excited: "✨ Excited",
 };
 
+function todayYMD() {
+  return new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+}
+
 export default function JournalClient({ entries: initialEntries, currentWeek }: Props) {
   const [entries, setEntries] = useState<JournalEntry[]>(initialEntries);
   const [editing, setEditing] = useState<JournalEntry | null>(null);
   const [isNew, setIsNew] = useState(false);
+
   const [week, setWeek] = useState(currentWeek);
+  const [date, setDate] = useState<string>(todayYMD()); // ✅ NEW: required by DB
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [mood, setMood] = useState<Mood>("happy");
   const [loading, setLoading] = useState(false);
+
   const supabase = createClient();
 
   const suggestedTitle = `Week ${week} – Feeling the kicks`;
@@ -36,6 +43,7 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
     setEditing(null);
     setIsNew(false);
     setWeek(currentWeek);
+    setDate(todayYMD()); // ✅ reset date
     setTitle("");
     setContent("");
     setMood("happy");
@@ -43,10 +51,12 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
 
   const handleEdit = (e: JournalEntry) => {
     setEditing(e);
-    setWeek(e.week);
-    setTitle(e.title);
-    setContent(e.content);
-    setMood(e.mood as Mood);
+    setWeek((e as any).week ?? currentWeek);
+    setTitle((e as any).title ?? "");
+    setContent((e as any).content ?? "");
+    setMood(((e as any).mood as Mood) ?? "happy");
+    // ✅ keep stored date if present; otherwise default to today
+    setDate(((e as any).date as string) || todayYMD());
     setIsNew(false);
   };
 
@@ -56,33 +66,55 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
     setIsNew(true);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     setLoading(true);
+
     try {
       const finalTitle = title.trim() || suggestedTitle;
+      const safeDate = date && date.trim().length > 0 ? date : todayYMD();
+
+const payload = {
+  week,
+  date: safeDate,
+  title: finalTitle,
+  content,
+  mood,
+};
+
       if (editing) {
         const { error } = await supabase
           .from("journal_entries")
-          .update({ week, title: finalTitle, content, mood })
-          .eq("id", editing.id);
-        if (!error) {
-          setEntries((prev) =>
-            prev.map((en) =>
-              en.id === editing.id
-                ? { ...en, week, title: finalTitle, content, mood }
-                : en
-            )
-          );
-          resetForm();
+          .update(payload)
+          .eq("id", (editing as any).id);
+
+        if (error) {
+          console.error(error);
+          alert("Failed to update entry");
+          return;
         }
-      } else if (isNew) {
+
+        setEntries((prev) =>
+          prev.map((en) => ((en as any).id === (editing as any).id ? ({ ...(en as any), ...payload } as any) : en))
+        );
+        resetForm();
+        return;
+      }
+
+      if (isNew) {
         const { data, error } = await supabase
           .from("journal_entries")
-          .insert({ week, title: finalTitle, content, mood })
+          .insert(payload)
           .select()
           .single();
-        if (!error && data) {
+
+        if (error) {
+          console.error(error);
+          alert("Failed to create entry");
+          return;
+        }
+
+        if (data) {
           setEntries((prev) => [data as JournalEntry, ...prev]);
           resetForm();
         }
@@ -94,14 +126,17 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this journal entry?")) return;
-    const { error } = await supabase
-      .from("journal_entries")
-      .delete()
-      .eq("id", id);
-    if (!error) {
-      setEntries((prev) => prev.filter((en) => en.id !== id));
-      resetForm();
+
+    const { error } = await supabase.from("journal_entries").delete().eq("id", id);
+
+    if (error) {
+      console.error(error);
+      alert("Failed to delete entry");
+      return;
     }
+
+    setEntries((prev) => prev.filter((en) => (en as any).id !== id));
+    resetForm();
   };
 
   const moods: Mood[] = ["happy", "tired", "emotional", "excited"];
@@ -117,26 +152,24 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
 
       <div className="space-y-4">
         {entries.map((entry) => (
-          <div
-            key={entry.id}
-            className="bg-white rounded-xl shadow-md p-5 group"
-          >
+          <div key={(entry as any).id} className="bg-white rounded-xl shadow-md p-5 group">
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
-                <p className="font-medium text-text-primary">{entry.title}</p>
+                <p className="font-medium text-text-primary">{(entry as any).title}</p>
                 <p className="text-xs text-text-muted mt-1">
-                  Week {entry.week} • {format(new Date(entry.created_at), "MMM d, yyyy")}
+                  Week {(entry as any).week} • {format(new Date((entry as any).created_at), "MMM d, yyyy")}
                 </p>
                 <span className="inline-block mt-2 px-2 py-0.5 rounded-full bg-sage-100 text-sage-600 text-xs">
-                  {MOOD_LABELS[entry.mood as Mood]}
+                  {MOOD_LABELS[((entry as any).mood as Mood) ?? "happy"]}
                 </span>
                 <p
                   className="text-sm text-text-secondary mt-3 line-clamp-3 whitespace-pre-wrap"
                   dangerouslySetInnerHTML={{
-                    __html: entry.content.replace(/<[^>]*>/g, ""),
+                    __html: String((entry as any).content ?? "").replace(/<[^>]*>/g, ""),
                   }}
                 />
               </div>
+
               <button
                 onClick={() => handleEdit(entry)}
                 className="text-sm text-sage-600 hover:text-sage-500 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -155,11 +188,21 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
             <h2 className="font-serif text-lg text-text-primary mb-4">
               {isNew ? "New journal entry" : "Edit journal entry"}
             </h2>
+
             <form onSubmit={handleSubmit} className="space-y-4">
+              {/* ✅ NEW: Date field (keeps DB happy + lets you change it if you want) */}
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-1">
-                  Week
-                </label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Date</label>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg border border-sage-200 focus:ring-2 focus:ring-sage-400 outline-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-text-primary mb-1">Week</label>
                 <input
                   type="number"
                   min={1}
@@ -168,17 +211,14 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
                   onChange={(e) => {
                     const w = parseInt(e.target.value, 10);
                     setWeek(w);
-                    if (!editing && !title) {
-                      setTitle(`Week ${w} – Feeling the kicks`);
-                    }
+                    if (!editing && !title) setTitle(`Week ${w} – Feeling the kicks`);
                   }}
                   className="w-full px-4 py-2 rounded-lg border border-sage-200 focus:ring-2 focus:ring-sage-400 outline-none"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-1">
-                  Title
-                </label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Title</label>
                 <input
                   type="text"
                   value={title}
@@ -187,10 +227,9 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
                   className="w-full px-4 py-2 rounded-lg border border-sage-200 focus:ring-2 focus:ring-sage-400 outline-none"
                 />
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-1">
-                  Mood
-                </label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Mood</label>
                 <div className="flex flex-wrap gap-2">
                   {moods.map((m) => (
                     <button
@@ -208,10 +247,9 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
                   ))}
                 </div>
               </div>
+
               <div>
-                <label className="block text-sm font-medium text-text-primary mb-1">
-                  Content
-                </label>
+                <label className="block text-sm font-medium text-text-primary mb-1">Content</label>
                 <textarea
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
@@ -219,10 +257,9 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
                   placeholder="How are you feeling this week? What milestones happened?"
                   className="w-full px-4 py-2 rounded-lg border border-sage-200 focus:ring-2 focus:ring-sage-400 outline-none resize-y"
                 />
-                <p className="text-xs text-text-muted mt-1">
-                  Basic formatting: use **bold** for bold text
-                </p>
+                <p className="text-xs text-text-muted mt-1">Basic formatting: use **bold** for bold text</p>
               </div>
+
               <div className="flex gap-2">
                 <button
                   type="button"
@@ -239,10 +276,11 @@ export default function JournalClient({ entries: initialEntries, currentWeek }: 
                   {loading ? "Saving..." : "Save"}
                 </button>
               </div>
+
               {editing && (
                 <button
                   type="button"
-                  onClick={() => handleDelete(editing.id)}
+                  onClick={() => handleDelete((editing as any).id)}
                   disabled={loading}
                   className="w-full py-2 text-red-500 hover:bg-red-50 rounded-lg"
                 >

@@ -1,74 +1,90 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/lib/supabase/client";
+import { useMemo, useState } from "react";
 import Calendar from "@/components/Calendar";
 import EventModal from "@/components/EventModal";
 import type { Event } from "@/types/database";
+import { createClient } from "@/lib/supabase/client";
 
-interface Props {
-  events: Event[];
-}
-
-export default function CalendarPageClient({ events: initialEvents }: Props) {
-  const [events, setEvents] = useState<Event[]>(initialEvents);
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+export default function CalendarPageClient({ events: initialEvents }: { events: Event[] }) {
   const supabase = createClient();
 
-  const dateEvents = selectedDate
-    ? events.filter((e) => e.date === selectedDate)
-    : [];
+  const [events, setEvents] = useState<Event[]>(initialEvents);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  const handleSave = async (event: Partial<Event>) => {
-    if (event.id) {
+  const eventsForSelectedDate = useMemo(() => {
+    if (!selectedDate) return [];
+    return events.filter((e) => e.date === selectedDate);
+  }, [events, selectedDate]);
+
+  async function refetchEvents() {
+    const { data, error } = await supabase.from("events").select("*").order("date");
+    if (error) {
+      console.error(error);
+      return;
+    }
+    setEvents((data ?? []) as Event[]);
+  }
+
+  async function handleSave(payload: Partial<Event>) {
+    // If payload has an id -> update, else insert
+    if (payload.id) {
       const { error } = await supabase
         .from("events")
         .update({
-          title: event.title,
-          description: event.description,
-          type: event.type,
+          title: payload.title,
+          description: payload.description ?? null,
+          type: payload.type,
+          date: payload.date,
         })
-        .eq("id", event.id);
-      if (!error) {
-        setEvents((prev) =>
-          prev.map((e) =>
-            e.id === event.id
-              ? { ...e, title: event.title!, description: event.description ?? null, type: event.type! }
-              : e
-          )
-        );
+        .eq("id", payload.id);
+
+      if (error) {
+        console.error(error);
+        alert("Failed to update event");
+        return;
       }
     } else {
-      const { data, error } = await supabase
-        .from("events")
-        .insert({
-          title: event.title,
-          description: event.description,
-          date: event.date,
-          type: event.type,
-        })
-        .select()
-        .single();
-      if (!error && data) {
-        setEvents((prev) => [...prev, data as Event].sort((a, b) => a.date.localeCompare(b.date)));
+      const { error } = await supabase.from("events").insert({
+        title: payload.title,
+        description: payload.description ?? null,
+        type: payload.type,
+        date: payload.date,
+      });
+
+      if (error) {
+        console.error(error);
+        alert("Failed to create event");
+        return;
       }
     }
-  };
 
-  const handleDelete = async (id: string) => {
+    await refetchEvents();
+  }
+
+  async function handleDelete(id: string) {
     const { error } = await supabase.from("events").delete().eq("id", id);
-    if (!error) {
-      setEvents((prev) => prev.filter((e) => e.id !== id));
+    if (error) {
+      console.error(error);
+      alert("Failed to delete event");
+      return;
     }
-  };
+    await refetchEvents();
+  }
 
   return (
     <>
-      <Calendar events={events} onDateClick={(date) => setSelectedDate(date)} />
+      <Calendar
+        events={events}
+        onDateClick={(date) => {
+          setSelectedDate(date);
+        }}
+      />
+
       {selectedDate && (
         <EventModal
           date={selectedDate}
-          events={dateEvents}
+          events={eventsForSelectedDate}
           onClose={() => setSelectedDate(null)}
           onSave={handleSave}
           onDelete={handleDelete}
