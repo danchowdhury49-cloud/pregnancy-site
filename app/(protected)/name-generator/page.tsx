@@ -33,10 +33,13 @@ function shuffle<T>(arr: T[]): T[] {
  * This prevents repeats until the deck is exhausted.
  */
 function buildDeck(mode: "boy" | "girl" | "either") {
-  if (mode === "boy") return shuffle(BOY_NAMES);
-  if (mode === "girl") return shuffle(GIRL_NAMES);
-  return shuffle([...BOY_NAMES, ...GIRL_NAMES]);
-}
+    const clean = (list: string[]) =>
+      list.filter((n) => n && n.trim().length > 0);
+  
+    if (mode === "boy") return shuffle(clean(BOY_NAMES));
+    if (mode === "girl") return shuffle(clean(GIRL_NAMES));
+    return shuffle([...clean(BOY_NAMES), ...clean(GIRL_NAMES)]);
+  }
 
 export default function NameGeneratorPage() {
   const [mode, setMode] = useState<"boy" | "girl" | "either">("either");
@@ -45,7 +48,7 @@ export default function NameGeneratorPage() {
   const deckRef = useRef<string[]>([]);
   const indexRef = useRef<number>(0);
 
-  const [pair, setPair] = useState<[string, string]>(["", ""]);
+  const [pair, setPair] = useState<[string, string]>(["Loading...", "Loading..."]);
   const [shortlist, setShortlist] = useState<string[]>([]);
 
   // Build/reset the deck whenever mode changes.
@@ -74,15 +77,14 @@ export default function NameGeneratorPage() {
   }
 
   function generatePair() {
-    // Ensure we return two different names (as long as deck has >=2)
-    const a = nextName();
-    let b = nextName();
-
-    if (deckRef.current.length >= 2) {
-      // In the rare case they match, keep drawing (won’t loop forever because deck has variety)
-      while (b === a) b = nextName();
+    if (deckRef.current.length < 2) {
+      setPair(["No names available", ""]);
+      return;
     }
-
+  
+    const a = nextName();
+    const b = nextName();
+  
     setPair([a, b]);
   }
 
