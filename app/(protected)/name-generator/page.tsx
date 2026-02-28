@@ -12,7 +12,7 @@ const GIRL_NAMES = [
   "Ella","Evie","Poppy","Ruby","Charlotte","Florence","Matilda","Willow","Aria","Elsie",
 ];
 
-function pickTwoDistinct(list: string[]) {
+function pickTwoDistinct(list: string[]): [string, string] {
   const a = list[Math.floor(Math.random() * list.length)];
   let b = list[Math.floor(Math.random() * list.length)];
   while (b === a && list.length > 1) b = list[Math.floor(Math.random() * list.length)];
