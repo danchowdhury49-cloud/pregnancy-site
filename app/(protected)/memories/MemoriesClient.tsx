@@ -53,7 +53,11 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
         .from("memories")
         .upload(path, file, { upsert: false, contentType: file.type });
 
-      if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error("STORAGE uploadError:", uploadError);
+          throw uploadError;
+        }
+        console.log("STORAGE upload ok:", { bucket: "memories", path });
 
       const { data: publicUrlData } = supabase.storage
         .from("memories")
@@ -68,7 +72,11 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
         .select()
         .single();
 
-      if (error) throw error;
+        if (error) {
+          console.error("DB insert error:", error);
+          throw error;
+        }
+        console.log("DB insert ok:", data);
 
       if (data) {
         setMemories((prev) => [data as Memory, ...prev]);
