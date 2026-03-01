@@ -24,15 +24,14 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
     setErrorMsg(null);
 
     const file = e.target.files?.[0];
-    // allow re-selecting the same file
     e.target.value = "";
     if (!file) return;
 
-    // basic validation
     if (!file.type.startsWith("image/")) {
       setErrorMsg("Please select an image file.");
       return;
     }
+
     if (file.size > 8 * 1024 * 1024) {
       setErrorMsg("Image is too large (max 8MB).");
       return;
@@ -41,49 +40,49 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
     setLoading(true);
 
     try {
-      // DEBUG: check role/user seen by Supabase for this request
-      const { data: who, error: whoErr } = await supabase.rpc("whoami");
-      console.log("whoami:", who, whoErr);
-
       const ext = file.name.split(".").pop() || "jpg";
       const path = `public/${crypto.randomUUID()}.${ext}`;
 
-      // Upload to Storage (requires bucket/policies – see notes below)
+      // 1️⃣ Upload to Storage
       const { error: uploadError } = await supabase.storage
         .from("memories")
-        .upload(path, file, { upsert: false, contentType: file.type });
+        .upload(path, file, {
+          upsert: false,
+          contentType: file.type,
+        });
 
-        if (uploadError) {
-          console.error("STORAGE uploadError:", uploadError);
-          throw uploadError;
-        }
-        console.log("STORAGE upload ok:", { bucket: "memories", path });
+      if (uploadError) {
+        console.error("Storage upload error:", uploadError);
+        throw uploadError;
+      }
 
       const { data: publicUrlData } = supabase.storage
         .from("memories")
         .getPublicUrl(path);
 
       const publicUrl = publicUrlData?.publicUrl;
-      if (!publicUrl) throw new Error("Could not generate public URL.");
 
-      const { data, error } = await supabase
-        .from("memories")
-        .insert({ image_url: publicUrl, caption: null })
-        .select()
-        .single();
+      if (!publicUrl) {
+        throw new Error("Could not generate public URL.");
+      }
 
-        if (error) {
-          console.error("DB insert error:", error);
-          throw error;
-        }
-        console.log("DB insert ok:", data);
+      // 2️⃣ Insert via RPC (bypasses RLS)
+      const { data, error } = await supabase.rpc("add_memory", {
+        p_image_url: publicUrl,
+        p_caption: null,
+      });
+
+      if (error) {
+        console.error("RPC insert error:", error);
+        throw error;
+      }
 
       if (data) {
         setMemories((prev) => [data as Memory, ...prev]);
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || "Upload failed. Check console for details.");
       console.error("Memory upload error:", err);
+      setErrorMsg(err?.message || "Upload failed. Check console for details.");
     } finally {
       setLoading(false);
     }
@@ -91,6 +90,7 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
 
   const handleSaveCaption = async () => {
     if (!editing) return;
+
     setLoading(true);
     setErrorMsg(null);
 
@@ -105,11 +105,12 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
       setMemories((prev) =>
         prev.map((m) => (m.id === editing.id ? { ...m, caption } : m))
       );
+
       setEditing(null);
       setPreview(null);
     } catch (err: any) {
-      setErrorMsg(err?.message || "Could not save caption.");
       console.error("Save caption error:", err);
+      setErrorMsg(err?.message || "Could not save caption.");
     } finally {
       setLoading(false);
     }
@@ -122,15 +123,19 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
     setErrorMsg(null);
 
     try {
-      const { error } = await supabase.from("memories").delete().eq("id", id);
+      const { error } = await supabase
+        .from("memories")
+        .delete()
+        .eq("id", id);
+
       if (error) throw error;
 
       setMemories((prev) => prev.filter((m) => m.id !== id));
       setPreview(null);
       setEditing(null);
     } catch (err: any) {
-      setErrorMsg(err?.message || "Could not delete memory.");
       console.error("Delete memory error:", err);
+      setErrorMsg(err?.message || "Could not delete memory.");
     } finally {
       setLoading(false);
     }
@@ -170,12 +175,12 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
             }}
             className="aspect-square relative rounded-xl overflow-hidden bg-sage-100 shadow-md hover:shadow-lg transition-shadow"
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={memory.image_url}
               alt={memory.caption ?? "Memory"}
               className="w-full h-full object-cover"
             />
+
             {memory.caption && (
               <div className="absolute bottom-0 left-0 right-0 p-2 bg-black/50 text-white text-xs line-clamp-2">
                 {memory.caption}
@@ -196,7 +201,6 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
           />
           <div className="relative max-w-2xl w-full">
             <div className="relative aspect-video rounded-xl overflow-hidden bg-black">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={preview.image_url}
                 alt={preview.caption ?? "Memory"}
@@ -232,7 +236,9 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
                 </div>
               ) : (
                 <div className="flex justify-between items-center gap-4">
-                  <p className="text-text-primary">{preview.caption || "No caption"}</p>
+                  <p className="text-text-primary">
+                    {preview.caption || "No caption"}
+                  </p>
                   <p className="text-sm text-text-muted whitespace-nowrap">
                     {format(new Date(preview.created_at), "MMM d, yyyy")}
                   </p>
