@@ -15,56 +15,89 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
   const [editing, setEditing] = useState<Memory | null>(null);
   const [caption, setCaption] = useState("");
   const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const supabase = createClient();
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    setErrorMsg(null);
+
     const file = e.target.files?.[0];
+    // allow re-selecting the same file
+    e.target.value = "";
     if (!file) return;
+
+    // basic validation
+    if (!file.type.startsWith("image/")) {
+      setErrorMsg("Please select an image file.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      setErrorMsg("Image is too large (max 8MB).");
+      return;
+    }
+
     setLoading(true);
+
     try {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return;
-      const ext = file.name.split(".").pop();
-      const path = `${user.id}/${Date.now()}.${ext}`;
+      const ext = file.name.split(".").pop() || "jpg";
+      const path = `public/${crypto.randomUUID()}.${ext}`;
+
+      // Upload to Storage (requires bucket/policies – see notes below)
       const { error: uploadError } = await supabase.storage
         .from("memories")
-        .upload(path, file, { upsert: false });
+        .upload(path, file, { upsert: false, contentType: file.type });
+
       if (uploadError) throw uploadError;
-      const {
-        data: { publicUrl },
-      } = supabase.storage.from("memories").getPublicUrl(path);
+
+      const { data: publicUrlData } = supabase.storage
+        .from("memories")
+        .getPublicUrl(path);
+
+      const publicUrl = publicUrlData?.publicUrl;
+      if (!publicUrl) throw new Error("Could not generate public URL.");
+
       const { data, error } = await supabase
         .from("memories")
         .insert({ image_url: publicUrl, caption: null })
         .select()
         .single();
-      if (!error && data) {
+
+      if (error) throw error;
+
+      if (data) {
         setMemories((prev) => [data as Memory, ...prev]);
       }
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Upload failed. Check console for details.");
+      console.error("Memory upload error:", err);
     } finally {
       setLoading(false);
-      e.target.value = "";
     }
   };
 
   const handleSaveCaption = async () => {
     if (!editing) return;
     setLoading(true);
+    setErrorMsg(null);
+
     try {
       const { error } = await supabase
         .from("memories")
         .update({ caption: caption || null })
         .eq("id", editing.id);
-      if (!error) {
-        setMemories((prev) =>
-          prev.map((m) => (m.id === editing.id ? { ...m, caption } : m))
-        );
-        setEditing(null);
-        setPreview(null);
-      }
+
+      if (error) throw error;
+
+      setMemories((prev) =>
+        prev.map((m) => (m.id === editing.id ? { ...m, caption } : m))
+      );
+      setEditing(null);
+      setPreview(null);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Could not save caption.");
+      console.error("Save caption error:", err);
     } finally {
       setLoading(false);
     }
@@ -72,11 +105,22 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
 
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this memory?")) return;
-    const { error } = await supabase.from("memories").delete().eq("id", id);
-    if (!error) {
+
+    setLoading(true);
+    setErrorMsg(null);
+
+    try {
+      const { error } = await supabase.from("memories").delete().eq("id", id);
+      if (error) throw error;
+
       setMemories((prev) => prev.filter((m) => m.id !== id));
       setPreview(null);
       setEditing(null);
+    } catch (err: any) {
+      setErrorMsg(err?.message || "Could not delete memory.");
+      console.error("Delete memory error:", err);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -89,6 +133,7 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
         onChange={handleUpload}
         className="hidden"
       />
+
       <button
         onClick={() => fileInputRef.current?.click()}
         disabled={loading}
@@ -96,6 +141,12 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
       >
         {loading ? "Uploading..." : "+ Upload photo"}
       </button>
+
+      {errorMsg && (
+        <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          {errorMsg}
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
         {memories.map((memory) => (
@@ -140,6 +191,7 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
                 className="w-full h-full object-contain"
               />
             </div>
+
             <div className="mt-4 bg-white rounded-xl p-4">
               {editing?.id === preview.id ? (
                 <div className="space-y-2">
@@ -167,15 +219,16 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
                   </div>
                 </div>
               ) : (
-                <div className="flex justify-between items-center">
+                <div className="flex justify-between items-center gap-4">
                   <p className="text-text-primary">
                     {preview.caption || "No caption"}
                   </p>
-                  <p className="text-sm text-text-muted">
+                  <p className="text-sm text-text-muted whitespace-nowrap">
                     {format(new Date(preview.created_at), "MMM d, yyyy")}
                   </p>
                 </div>
               )}
+
               <div className="flex gap-2 mt-3">
                 <button
                   onClick={() => setEditing(preview)}
