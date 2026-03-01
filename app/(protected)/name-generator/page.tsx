@@ -2,23 +2,16 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/**
- * OPTION 1: BIG LISTS IN CODE (YOU CAN EXPAND THESE)
- * Add hundreds/thousands here whenever you want.
- */
 const BOY_NAMES = [
   "Noah","Oliver","George","Leo","Arthur","Harry","Charlie","Theo","Oscar","Freddie",
   "Jack","Alfie","Henry","Archie","Finley","Felix","Jude","Hugo","Louis","Milo",
-  // Add more...
 ];
 
 const GIRL_NAMES = [
   "Olivia","Amelia","Isla","Ava","Mia","Ivy","Freya","Lily","Grace","Sophie",
   "Ella","Evie","Poppy","Ruby","Charlotte","Florence","Matilda","Willow","Aria","Elsie",
-  // Add more...
 ];
 
-/** Fisher–Yates shuffle */
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -28,74 +21,27 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-/**
- * Creates a "deck" of names that we draw from.
- * This prevents repeats until the deck is exhausted.
- */
+function clean(list: string[]) {
+  return list.map((n) => (n ?? "").trim()).filter(Boolean);
+}
+
 function buildDeck(mode: "boy" | "girl" | "either") {
-    const clean = (list: string[]) =>
-      list.filter((n) => n && n.trim().length > 0);
-  
-    if (mode === "boy") return shuffle(clean(BOY_NAMES));
-    if (mode === "girl") return shuffle(clean(GIRL_NAMES));
-    return shuffle([...clean(BOY_NAMES), ...clean(GIRL_NAMES)]);
-  }
+  if (mode === "boy") return shuffle(clean(BOY_NAMES));
+  if (mode === "girl") return shuffle(clean(GIRL_NAMES));
+  return shuffle([...clean(BOY_NAMES), ...clean(GIRL_NAMES)]);
+}
 
 export default function NameGeneratorPage() {
   const [mode, setMode] = useState<"boy" | "girl" | "either">("either");
 
-  // The shuffled deck and the current index into it.
   const deckRef = useRef<string[]>([]);
-  const indexRef = useRef<number>(0);
+  const idxRef = useRef(0);
 
-  const [pair, setPair] = useState<[string, string]>(["Loading...", "Loading..."]);
+  // ✅ Exactly TWO names, always
+  const [a, setA] = useState<string>("—");
+  const [b, setB] = useState<string>("—");
+
   const [shortlist, setShortlist] = useState<string[]>([]);
-
-  // Build/reset the deck whenever mode changes.
-  useEffect(() => {
-    deckRef.current = buildDeck(mode);
-    indexRef.current = 0;
-
-    // Immediately generate the first pair.
-    generatePair();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
-
-  function nextName(): string {
-    // If deck is empty, just return placeholder
-    if (deckRef.current.length === 0) return "—";
-
-    // If we’ve reached the end, reshuffle and restart (still no repeats within each cycle)
-    if (indexRef.current >= deckRef.current.length) {
-      deckRef.current = shuffle(deckRef.current);
-      indexRef.current = 0;
-    }
-
-    const name = deckRef.current[indexRef.current];
-    indexRef.current += 1;
-    return name;
-  }
-
-  function generatePair() {
-    if (deckRef.current.length < 2) {
-      setPair(["No names available", ""]);
-      return;
-    }
-  
-    const a = nextName();
-    const b = nextName();
-  
-    setPair([a, b]);
-  }
-
-  function addToShortlist(name: string) {
-    if (!name || name === "—") return;
-    setShortlist((prev) => (prev.includes(name) ? prev : [name, ...prev]));
-  }
-
-  function removeFromShortlist(name: string) {
-    setShortlist((prev) => prev.filter((n) => n !== name));
-  }
 
   const modeButtons = useMemo(
     () => [
@@ -105,6 +51,51 @@ export default function NameGeneratorPage() {
     ],
     []
   );
+
+  function nextName(): string {
+    if (deckRef.current.length === 0) return "—";
+
+    if (idxRef.current >= deckRef.current.length) {
+      deckRef.current = shuffle(deckRef.current);
+      idxRef.current = 0;
+    }
+
+    const name = deckRef.current[idxRef.current] ?? "—";
+    idxRef.current += 1;
+    return name;
+  }
+
+  function generateTwo() {
+    // draw first
+    const first = nextName();
+
+    // draw second (ensure different when possible)
+    let second = nextName();
+    let guard = 0;
+    while (deckRef.current.length >= 2 && second === first && guard < 10) {
+      second = nextName();
+      guard++;
+    }
+
+    setA(first);
+    setB(second);
+  }
+
+  useEffect(() => {
+    deckRef.current = buildDeck(mode);
+    idxRef.current = 0;
+    generateTwo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
+  function addToShortlist(name: string) {
+    if (!name || name === "—") return;
+    setShortlist((prev) => (prev.includes(name) ? prev : [name, ...prev]));
+  }
+
+  function removeFromShortlist(name: string) {
+    setShortlist((prev) => prev.filter((n) => n !== name));
+  }
 
   return (
     <div className="space-y-6">
@@ -118,41 +109,47 @@ export default function NameGeneratorPage() {
           </div>
 
           <div className="flex gap-2">
-            {modeButtons.map((b) => (
+            {modeButtons.map((btn) => (
               <button
-                key={b.key}
-                onClick={() => setMode(b.key)}
+                key={btn.key}
+                onClick={() => setMode(btn.key)}
                 className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                  mode === b.key
+                  mode === btn.key
                     ? "bg-sage-400 text-white"
                     : "bg-sage-50 text-text-secondary hover:bg-sage-100"
                 }`}
               >
-                {b.label}
+                {btn.label}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="mt-6 grid sm:grid-cols-2 gap-4">
-          {pair.map((name) => (
-            <div
-              key={name}
-              className="rounded-xl border border-sage-200 p-4 flex items-center justify-between"
+        {/* ✅ EXACTLY TWO CARDS, SIDE BY SIDE */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="rounded-xl border border-sage-200 p-4 flex items-center justify-between">
+            <div className="text-lg font-medium text-text-primary">{a}</div>
+            <button
+              onClick={() => addToShortlist(a)}
+              className="px-3 py-1.5 rounded-lg bg-sage-50 text-sage-700 hover:bg-sage-100 text-sm"
             >
-              <div className="text-lg font-medium text-text-primary">{name}</div>
-              <button
-                onClick={() => addToShortlist(name)}
-                className="px-3 py-1.5 rounded-lg bg-sage-50 text-sage-700 hover:bg-sage-100 text-sm"
-              >
-                + Shortlist
-              </button>
-            </div>
-          ))}
+              + Shortlist
+            </button>
+          </div>
+
+          <div className="rounded-xl border border-sage-200 p-4 flex items-center justify-between">
+            <div className="text-lg font-medium text-text-primary">{b}</div>
+            <button
+              onClick={() => addToShortlist(b)}
+              className="px-3 py-1.5 rounded-lg bg-sage-50 text-sage-700 hover:bg-sage-100 text-sm"
+            >
+              + Shortlist
+            </button>
+          </div>
         </div>
 
         <button
-          onClick={generatePair}
+          onClick={generateTwo}
           className="mt-5 w-full py-3 rounded-xl bg-sage-400 text-white font-medium hover:bg-sage-500 transition-colors"
         >
           Generate new names
