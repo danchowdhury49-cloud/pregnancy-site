@@ -53,9 +53,9 @@ export interface Kick {
 
 export interface Contraction {
   id: string;
-  start_time: string;
-  end_time: string;
-  duration: number;
+  started_at: string;
+  ended_at: string;
+  duration_seconds: number;
   user_id: string;
   created_at: string;
 }
