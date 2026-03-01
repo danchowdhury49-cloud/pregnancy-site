@@ -59,7 +59,7 @@ export default async function HomePage() {
             </div>
 
             <p className="text-2xl font-medium text-text-primary">
-              {daysRemaining} days until you meet your baby
+              {daysRemaining} days until we meet our baby
             </p>
           </div>
 
