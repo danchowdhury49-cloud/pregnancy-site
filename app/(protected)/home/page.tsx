@@ -34,7 +34,7 @@ export default async function HomePage() {
       {/* Header */}
       <header className="py-10 text-center">
         <h1 className="font-serif text-3xl text-text-primary">Welcome back</h1>
-        <p className="mt-2 text-sm text-text-secondary">Your pregnancy journey</p>
+        <p className="mt-2 text-sm text-text-secondary">Our pregnancy journey</p>
       </header>
 
       {/* Grid: 1 col on mobile, 2 col on desktop */}
