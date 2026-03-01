@@ -12,7 +12,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { format } from "date-fns";
-import type { WeightLog, Kick, Contraction } from "@/types/database";
+import type { WeightLog, Contraction } from "@/types/database";
 
 interface Props {
   currentWeek: number;
@@ -31,17 +31,23 @@ export default function HealthClient({
   const [weight, setWeight] = useState("");
   const [week, setWeek] = useState(currentWeek);
   const [weightLoading, setWeightLoading] = useState(false);
+
   const [kicksToday, setKicksToday] = useState(initialKicks);
   const [kickLoading, setKickLoading] = useState(false);
-  const [contractions, setContractions] = useState<Contraction[]>(initialContractions);
+
+  const [contractions, setContractions] =
+    useState<Contraction[]>(initialContractions);
   const [timerRunning, setTimerRunning] = useState(false);
   const [timerStart, setTimerStart] = useState<Date | null>(null);
+  const [timerLoading, setTimerLoading] = useState(false);
+
   const supabase = createClient();
 
   const handleAddWeight = async (e: React.FormEvent) => {
     e.preventDefault();
     const w = parseFloat(weight);
     if (isNaN(w)) return;
+
     setWeightLoading(true);
     try {
       const { data, error } = await supabase
@@ -49,7 +55,13 @@ export default function HealthClient({
         .insert({ week, weight: w })
         .select()
         .single();
-      if (!error && data) {
+
+      if (error) {
+        console.error("Add weight error:", error);
+        return;
+      }
+
+      if (data) {
         setWeightLogs((prev) =>
           [...prev, data as WeightLog].sort((a, b) => a.week - b.week)
         );
@@ -63,10 +75,33 @@ export default function HealthClient({
   const handleLogKick = async () => {
     setKickLoading(true);
     try {
-      const { error } = await supabase.from("kicks").insert({});
-      if (!error) {
-        setKicksToday((prev) => prev + 1);
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+      // Fetch current count for today (if exists)
+      const { data: existing, error: fetchErr } = await supabase
+        .from("kicks")
+        .select("count")
+        .eq("day", today)
+        .maybeSingle();
+
+      if (fetchErr) {
+        console.error("Fetch kicks error:", fetchErr);
+        return;
       }
+
+      const nextCount = (existing?.count ?? 0) + 1;
+
+      // Upsert so we don't hit UNIQUE(day) conflicts
+      const { error: upsertErr } = await supabase
+        .from("kicks")
+        .upsert({ day: today, count: nextCount }, { onConflict: "day" });
+
+      if (upsertErr) {
+        console.error("Upsert kicks error:", upsertErr);
+        return;
+      }
+
+      setKicksToday(nextCount);
     } finally {
       setKickLoading(false);
     }
@@ -79,22 +114,40 @@ export default function HealthClient({
 
   const handleStopTimer = async () => {
     if (!timerStart) return;
-    const endTime = new Date();
-    const duration = Math.round((endTime.getTime() - timerStart.getTime()) / 1000);
-    const { data, error } = await supabase
-      .from("contractions")
-      .insert({
-        start_time: timerStart.toISOString(),
-        end_time: endTime.toISOString(),
-        duration,
-      })
-      .select()
-      .single();
-    if (!error && data) {
-      setContractions((prev) => [data as Contraction, ...prev]);
+
+    setTimerLoading(true);
+    try {
+      const endTime = new Date();
+      const durationSeconds = Math.round(
+        (endTime.getTime() - timerStart.getTime()) / 1000
+      );
+
+      // IMPORTANT: matches the DB columns we created:
+      // started_at, ended_at, duration_seconds
+      const { data, error } = await supabase
+        .from("contractions")
+        .insert({
+          started_at: timerStart.toISOString(),
+          ended_at: endTime.toISOString(),
+          duration_seconds: durationSeconds,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Insert contraction error:", error);
+        return;
+      }
+
+      if (data) {
+        setContractions((prev) => [data as Contraction, ...prev]);
+      }
+
+      setTimerRunning(false);
+      setTimerStart(null);
+    } finally {
+      setTimerLoading(false);
     }
-    setTimerRunning(false);
-    setTimerStart(null);
   };
 
   const chartData = weightLogs.map((log) => ({
@@ -137,6 +190,7 @@ export default function HealthClient({
             Add
           </button>
         </form>
+
         {chartData.length > 0 && (
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
@@ -179,12 +233,10 @@ export default function HealthClient({
             disabled={kickLoading}
             className="px-6 py-3 rounded-xl bg-sage-400 text-white font-medium hover:bg-sage-500 transition-colors disabled:opacity-60"
           >
-            Log kick
+            {kickLoading ? "Logging..." : "Log kick"}
           </button>
         </div>
-        <p className="text-xs text-text-muted mt-2">
-          Resets daily at midnight
-        </p>
+        <p className="text-xs text-text-muted mt-2">Resets daily at midnight</p>
       </div>
 
       {/* Contraction timer */}
@@ -192,38 +244,43 @@ export default function HealthClient({
         <h2 className="font-serif text-lg text-text-primary mb-4">
           Contraction timer
         </h2>
+
         <div className="flex items-center gap-4 mb-6">
           {!timerRunning ? (
             <button
               onClick={handleStartTimer}
-              className="px-6 py-3 rounded-xl bg-sage-400 text-white font-medium hover:bg-sage-500 transition-colors"
+              disabled={timerLoading}
+              className="px-6 py-3 rounded-xl bg-sage-400 text-white font-medium hover:bg-sage-500 transition-colors disabled:opacity-60"
             >
               Start
             </button>
           ) : (
             <button
               onClick={handleStopTimer}
-              className="px-6 py-3 rounded-xl bg-red-400 text-white font-medium hover:bg-red-500 transition-colors animate-pulse"
+              disabled={timerLoading}
+              className="px-6 py-3 rounded-xl bg-red-400 text-white font-medium hover:bg-red-500 transition-colors animate-pulse disabled:opacity-60"
             >
-              Stop
+              {timerLoading ? "Saving..." : "Stop"}
             </button>
           )}
         </div>
+
         {contractions.length > 0 && (
           <div className="space-y-2 max-h-48 overflow-y-auto">
             <p className="text-sm font-medium text-text-secondary">
               Recent contractions
             </p>
+
             {contractions.slice(0, 10).map((c) => (
               <div
                 key={c.id}
                 className="flex justify-between py-2 border-b border-sage-100 text-sm"
               >
                 <span className="text-text-secondary">
-                  {format(new Date(c.start_time), "h:mm a")}
+                  {format(new Date(c.started_at), "h:mm a")}
                 </span>
                 <span className="font-medium text-sage-600">
-                  {c.duration} sec
+                  {c.duration_seconds} sec
                 </span>
               </div>
             ))}
