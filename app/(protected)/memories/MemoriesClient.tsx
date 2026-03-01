@@ -41,6 +41,10 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
     setLoading(true);
 
     try {
+      // DEBUG: check role/user seen by Supabase for this request
+      const { data: who, error: whoErr } = await supabase.rpc("whoami");
+      console.log("whoami:", who, whoErr);
+
       const ext = file.name.split(".").pop() || "jpg";
       const path = `public/${crypto.randomUUID()}.${ext}`;
 
@@ -220,9 +224,7 @@ export default function MemoriesClient({ memories: initialMemories }: Props) {
                 </div>
               ) : (
                 <div className="flex justify-between items-center gap-4">
-                  <p className="text-text-primary">
-                    {preview.caption || "No caption"}
-                  </p>
+                  <p className="text-text-primary">{preview.caption || "No caption"}</p>
                   <p className="text-sm text-text-muted whitespace-nowrap">
                     {format(new Date(preview.created_at), "MMM d, yyyy")}
                   </p>
